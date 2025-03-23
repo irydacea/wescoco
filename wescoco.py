@@ -91,14 +91,91 @@ class CocoProcessor:
                               $''',
                               flags = re.VERBOSE | re.ASCII)
 
-    @staticmethod
-    def process_line(raw: str):
+    # Banner log message regexes
+    # Members are tuples where the first item specifies whether the regex
+    # should be discarded after matching once, and the second item is the
+    # regex itself. Regardless of anything else, if the very last regex is
+    # matched once, banner matching stops forever
+    _re_banner = (
+        (
+            True,
+            re.compile(r'''^(Battle for Wesnoth v)(.*)$''', flags=re.ASCII),
+            AnsiFormat.YELLOW,
+            AnsiFormat.BRIGHT_YELLOW,
+        ),
+        (
+            True,
+            re.compile(r'''^(Started on )(.*)$'''),
+            AnsiFormat.YELLOW,
+            AnsiFormat.BRIGHT_YELLOW,
+        ),
+        # filesystem api configuration steps
+        (
+            True,
+            re.compile(r'''^(Automatically found a possible data directory at: )(.*)$'''),
+            AnsiFormat.GREEN,
+            AnsiFormat.BRIGHT_GREEN,
+        ),
+        (
+            True,
+            re.compile(r'''^(Overriding data directory with )('.*')$'''),
+            AnsiFormat.GREEN,
+            AnsiFormat.BRIGHT_GREEN,
+        ),
+        (
+            False,
+            re.compile(r'''^((?:Starting|Now have) with directory: )(.*)$'''),
+            None,
+            AnsiFormat.DIM,
+        ),
+        # filesystem api configuration summary (1.18)
+        (
+            False,
+            re.compile(r'''^
+                       ((?:Data|User\x20(?:configuration|data)|Cache)
+                       \x20
+                       directory:\x20+)
+                       (.+)$''',
+                       flags = re.VERBOSE | re.ASCII),
+            None,
+            AnsiFormat.BRIGHT_BLACK,
+        ),
+        # filesystem api configuration summary (1.20)
+        (
+            False,
+            re.compile(r'''^
+                       ((?:(?:Game|User)\x20data)|Cache:
+                       \x20+)
+                       (.+)$''',
+                       flags = re.VERBOSE | re.ASCII),
+            None,
+            AnsiFormat.BRIGHT_BLACK,
+        ),
+        # graphical system configuration summary
+        (
+            True,
+            re.compile(r'''^(Setting mode to )(.+)$''', flags=re.ASCII),
+            AnsiFormat.CYAN,
+            AnsiFormat.BRIGHT_CYAN,
+        )
+    )
+
+    def __init__(self):
+        self._banner_re = [re for re in CocoProcessor._re_banner]
+
+    def _banner_done(self) -> bool:
+        return not self._banner_re
+
+    def process_line(self, raw: str):
         '''
         Processes a single line of input.
         '''
         match = CocoProcessor._re_standard.match(raw)
         if not match:
-            sys.stderr.write(raw)
+            if not self._banner_done():
+                self.process_banner(raw)
+            else:
+                sys.stderr.write(raw)
         else:
             date, tm, loglevel, logdomain, body = match.groups()
             fmt = LOGLEVEL_FORMATS.get(loglevel, AnsiFormat.DEFAULT)
@@ -110,6 +187,30 @@ class CocoProcessor:
                 '\n')
             sys.stderr.write(fmt.apply(' '.join(parts)))
         sys.stderr.flush()
+
+    def process_banner(self, raw: str):
+        '''
+        Process a line that may be part of the startup banner.
+        '''
+        for i, (onetime, regex, left_fmt, right_fmt) in enumerate(self._banner_re):
+            last = i == len(self._banner_re) - 1
+            match = regex.match(raw)
+            if match:
+                if not left_fmt:
+                    left_fmt = AnsiFormat.DIM
+                if not right_fmt:
+                    right_fmt = AnsiFormat.GREEN
+                prefix = left_fmt.apply(match.group(1))
+                text = right_fmt.apply(match.group(2))
+                sys.stderr.write(f'{prefix}{text}\n')
+                # Discard regexes that won't be used anymore
+                if onetime:
+                    del self._banner_re[i]
+                if last:
+                    self._banner_re = []
+                return
+        # Line never matched anything
+        sys.stderr.write(raw)
 
 
 def main():
