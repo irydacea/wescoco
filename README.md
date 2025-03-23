@@ -18,7 +18,7 @@ How
 Just pipe Wesnoth's console output directly into WesCoco, the Unix Way™:
 
 ```
-wesnoth 2>&1 | python3 wescoco.py
+wesnoth --no-log-to-file 2>&1 | python3 wescoco.py
 ```
 
 (Note that WesCoco's own output stream is stderr. This is not currently configurable.)
